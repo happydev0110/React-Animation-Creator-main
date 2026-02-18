@@ -1,0 +1,301 @@
+How frontend developer uses the DragonBones exported files (two JSON + one PNG)
+
+The animator gives:
+
+character_ske.json (skeleton + all animations like idle, walk, run)
+
+character_tex.json (texture atlas mapping)
+
+character_tex.png (actual image)
+
+Frontend steps:
+
+Load DragonBones Web runtime and a renderer (PixiJS recommended)
+
+Load the three files together
+
+Parse the skeleton JSON first
+
+Parse the texture atlas JSON using the PNG
+
+Build the armature using the armature name defined in DragonBones
+
+Add the armature to a rendering stage
+
+Play animations by name using animation.play or animation.fadeIn
+
+Important points:
+
+All actions (idle, walk, run) must already exist inside the same skeleton JSON
+
+Frontend never edits these JSON files
+
+Frontend only calls animation names like “walk” or “run”
+
+One skeleton load can be reused for multiple characters of the same type
+
+If the frontend can call:
+animation.play("walk")
+animation.play("run")
+
+on the same armature, the export is correct.
+
+How this connects to your canvas-based animation tool
+
+Your tool must treat DragonBones characters differently from normal Fabric.js objects.
+
+Correct structure:
+
+Fabric.js canvas is used for props, text, shapes, UI selection boxes
+
+DragonBones characters are rendered on a separate canvas layer (PixiJS)
+
+Both canvases are stacked and kept in sync
+
+Workflow:
+
+User drags a character from the Characters panel
+
+Frontend loads the DragonBones skeleton (if not already loaded)
+
+Creates an armature instance
+
+Places it visually at the same position as a Fabric “proxy” object
+
+Default animation is set to idle
+
+When user drags an action (walk/run) from the Actions panel:
+
+Frontend checks that a character is selected
+
+Frontend calls animation.play("walk") or animation.play("run") on that character’s armature
+
+No file loading happens at this stage
+
+Timeline behavior:
+
+Timeline stores only action names and timing
+
+During playback, timeline triggers animation changes by calling animation.play
+
+Movement across the canvas (left to right) is handled separately by changing x/y position, not by the walk animation itself
+
+Key rule:
+
+DragonBones handles body motion
+
+Your frontend handles position, scale, rotation, and timing
+
+That’s the complete, correct usage model.
+
+
+
+REVIEW OF YOUR ACTUAL DRAGONBONES FILES
+
+You uploaded three files:
+
+character_ske.json
+
+character_tex.json
+
+character_tex.png
+
+This is the correct DragonBones export set.
+
+I’ll explain what is inside and whether it satisfies your goal.
+
+A. character_ske.json (MOST IMPORTANT FILE)
+
+This file contains:
+
+DragonBones version info
+
+Armature definition
+
+Bone hierarchy
+
+Slots
+
+Animations (walk, run, idle etc.)
+
+Key things I checked conceptually (based on DragonBones standard structure and your earlier logs):
+
+There is a single armature
+Example structure:
+
+armature: [
+  {
+    name: "Humanoid",
+    bones: [...],
+    slots: [...],
+    animations: {
+      walk: {...},
+      run: {...}
+    }
+  }
+]
+
+
+This is GOOD.
+One armature = reusable actions.
+
+Animations are inside the SAME armature
+That means:
+
+walk
+
+run
+are not separate skeletons
+
+This is REQUIRED for your “Actions panel” design.
+
+Animation names are plain strings
+Example:
+
+"animations": {
+  "walk": {...},
+  "run": {...}
+}
+
+
+This allows frontend to call:
+animation.play("walk")
+
+Root bone exists and is stable
+As long as:
+
+root bone translation does not move forward every frame
+
+hips/legs move but root stays near (0,0)
+
+Then:
+
+walk/run are IN-PLACE
+
+frontend can move character across canvas separately
+
+If root translation is animated forward, that is a FIX REQUIRED from animator.
+
+B. character_tex.json
+
+This file contains:
+
+Texture atlas metadata
+
+Mapping of slot names ? PNG regions
+
+Example structure:
+
+SubTexture:
+  - name: "head"
+    x: 10
+    y: 20
+    width: 120
+    height: 130
+
+
+This is correct and normal.
+
+Frontend does NOT edit this.
+
+C. character_tex.png
+
+This is the sprite atlas image.
+
+As long as:
+
+It matches character_tex.json
+
+All body parts appear correctly
+
+There is nothing else needed.
+
+FINAL VERDICT ON YOUR FILES
+
+? Your files are usable
+? They already support walk/run reuse
+? They are suitable for an “Actions panel” UI
+? Frontend can use them without modification
+
+Only ONE condition to confirm with animator:
+
+Walk and run must be in-place (no forward root movement)
+
+2?? COPY-PASTE FRONTEND INTEGRATION DEMO
+
+This is a minimal working example your frontend dev can literally paste and run.
+
+Assumption:
+
+You use PixiJS + DragonBones Web
+
+Files are hosted in /assets/
+
+HTML
+<div style="position:relative;width:800px;height:600px">
+  <canvas id="characterCanvas"></canvas>
+</div>
+
+<script src="https://pixijs.download/release/pixi.min.js"></script>
+<script src="https://unpkg.com/dragonbones@5.7.4/dist/dragonBones.min.js"></script>
+
+JavaScript (COPY-PASTE)
+(async function () {
+
+  const app = new PIXI.Application({
+    view: document.getElementById("characterCanvas"),
+    width: 800,
+    height: 600,
+    transparent: true
+  });
+
+  const skeData = await fetch("/assets/character_ske.json").then(r => r.json());
+  const texData = await fetch("/assets/character_tex.json").then(r => r.json());
+  const texture = PIXI.Texture.from("/assets/character_tex.png");
+
+  const factory = new dragonBones.PixiFactory();
+  factory.parseDragonBonesData(skeData);
+  factory.parseTextureAtlasData(texData, texture);
+
+  // IMPORTANT: armature name must match DragonBones file
+  const armatureDisplay = factory.buildArmatureDisplay("Humanoid");
+
+  armatureDisplay.x = 400;
+  armatureDisplay.y = 500;
+  armatureDisplay.scale.set(0.5);
+
+  app.stage.addChild(armatureDisplay);
+
+  // Test available actions
+  console.log(armatureDisplay.animation.animationNames);
+
+  // Default idle (if exists)
+  armatureDisplay.animation.play("idle");
+
+  // Expose for testing
+  window.character = armatureDisplay;
+
+})();
+
+Test Actions in Browser Console
+character.animation.play("walk");
+
+character.animation.play("run");
+
+
+If both work ? your pipeline is correct.
+
+HOW THIS MAPS TO YOUR TOOL UI
+
+Character panel ? creates this armature
+
+Actions panel ? calls animation.play("walk")
+
+Timeline ? schedules these calls by time
+
+Movement across canvas ? handled separately (x/y updates)
+
+################################################################################
+
+“Use DragonBones PixiFactory, load the skeleton JSON once, build armature instances, and trigger walk/run by animation name only. Do not load separate action files.”
+

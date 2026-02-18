@@ -1,0 +1,149 @@
+Frontend must:
+
+Load DragonBones runtime
+
+Parse skeleton JSON
+
+Parse texture atlas JSON
+
+Load PNG texture
+
+Build armature
+
+Play actions
+
+Sync with canvas & timeline
+
+1?? ADD DRAGONBONES WEB RUNTIME (REQUIRED)
+Option A — CDN (Fast MVP)
+<script src="https://unpkg.com/dragonbones@5.7.4/dist/dragonBones.min.js"></script>
+<script src="https://pixijs.download/release/pixi.min.js"></script>
+
+
+?? DragonBones Web needs a renderer (Canvas / PixiJS)
+
+2?? CREATE RENDER LAYER (SEPARATE FROM FABRIC)
+
+?? Do NOT render DragonBones inside Fabric objects
+
+Recommended Setup
+<div id="stage">
+  <canvas id="fabricCanvas"></canvas>
+  <canvas id="characterCanvas"></canvas> ?? Pixi / DragonBones
+</div>
+
+
+Both canvases:
+
+Same width / height
+
+Absolute positioned
+
+Synchronized transforms
+
+3?? LOAD THE EXPORTED FILES
+Fetch JSON + PNG
+const skeData = await fetch('/assets/character_ske.json').then(r => r.json());
+const texData = await fetch('/assets/character_tex.json').then(r => r.json());
+const texture = await PIXI.Texture.from('/assets/character_tex.png');
+
+4?? INITIALIZE DRAGONBONES FACTORY
+const factory = new dragonBones.PixiFactory();
+factory.parseDragonBonesData(skeData);
+factory.parseTextureAtlasData(texData, texture);
+
+5?? BUILD THE ARMATURE (CHARACTER INSTANCE)
+const armatureDisplay = factory.buildArmatureDisplay("Humanoid");
+armatureDisplay.x = 400;
+armatureDisplay.y = 500;
+armatureDisplay.scale.set(0.5);
+
+
+?? "Humanoid" must match armature name in DragonBones
+
+6?? ADD TO PIXI STAGE
+const app = new PIXI.Application({
+  view: document.getElementById("characterCanvas"),
+  transparent: true,
+  width: 1280,
+  height: 720
+});
+
+app.stage.addChild(armatureDisplay);
+
+7?? PLAY ACTIONS (THIS IS WHERE MAGIC HAPPENS)
+Idle by default
+armatureDisplay.animation.play("idle");
+
+Walk
+armatureDisplay.animation.fadeIn("walk", 0.2, 0);
+
+Run
+armatureDisplay.animation.fadeIn("run", 0.1, 0);
+
+8?? CREATE CHARACTER CONTROLLER (IMPORTANT ABSTRACTION)
+class CharacterController {
+  constructor(display) {
+    this.display = display;
+  }
+
+  play(action, options = {}) {
+    const { fade = 0.2, loop = true, speed = 1 } = options;
+    this.display.animation.timeScale = speed;
+    this.display.animation.fadeIn(action, fade, loop ? 0 : 1);
+  }
+}
+
+
+Usage:
+
+const controller = new CharacterController(armatureDisplay);
+controller.play("walk");
+
+9?? SYNC WITH FABRIC.JS OBJECT (POSITION & SCALE)
+
+Fabric object = visual proxy only
+
+fabricObject.on("moving", () => {
+  armatureDisplay.x = fabricObject.left;
+  armatureDisplay.y = fabricObject.top;
+});
+
+fabricObject.on("scaling", () => {
+  armatureDisplay.scale.set(fabricObject.scaleX);
+});
+
+?? TIMELINE INTEGRATION
+
+Timeline triggers action changes:
+
+if (time === clip.start) controller.play("walk");
+if (time === clip.end) controller.play("idle");
+
+?? HOW FRONTEND DEV TESTS YOUR FILES
+
+Tell him to test ONLY this:
+
+console.log(armatureDisplay.animation.animationNames);
+
+
+Expected output:
+
+["idle", "walk", "run"]
+
+
+If this works ? your files are correct
+
+? COMMON ERRORS (AND WHAT THEY MEAN)
+Error	Meaning
+animation not found	Action name mismatch
+bones explode	Bad rig
+character moves forward	Root motion present
+nothing renders	Wrong armature name
+? FINAL ANSWER (VERY CLEAR)
+
+? Frontend uses both JSONs + PNG together
+? One-time load per skeleton
+? Actions are played by name
+? UI actions map to animation names
+? Timeline controls when actions play
